@@ -19,6 +19,7 @@ import (
 	"github.com/replicate/cog/pkg/docker"
 	"github.com/replicate/cog/pkg/docker/command"
 	"github.com/replicate/cog/pkg/dockerfile"
+	"github.com/replicate/cog/pkg/dockerignore"
 	"github.com/replicate/cog/pkg/global"
 	"github.com/replicate/cog/pkg/util/console"
 	"github.com/replicate/cog/pkg/weights"
@@ -43,6 +44,10 @@ func Build(cfg *config.Config, dir, imageName string, secrets []string, noCache,
 	// remove bundled schema files that may be left from previous builds
 	_ = os.Remove(bundledSchemaFile)
 	_ = os.Remove(bundledSchemaPy)
+
+	if err := checkCompatibleDockerIgnore(dir); err != nil {
+		return err
+	}
 
 	var cogBaseImageName string
 
@@ -146,8 +151,7 @@ func Build(cfg *config.Config, dir, imageName string, secrets []string, noCache,
 	}
 
 	// save open_api schema file
-	err := os.WriteFile(bundledSchemaFile, schemaJSON, 0o644)
-	if err != nil {
+	if err := os.WriteFile(bundledSchemaFile, schemaJSON, 0o644); err != nil {
 		return fmt.Errorf("failed to store bundled schema file %s: %w", bundledSchemaFile, err)
 	}
 
@@ -402,4 +406,19 @@ func restoreDockerignore() error {
 	}
 
 	return os.Rename(dockerignoreBackupPath, ".dockerignore")
+}
+
+func checkCompatibleDockerIgnore(dir string) error {
+	matcher, err := dockerignore.CreateMatcher(dir)
+	if err != nil {
+		return err
+	}
+	// If the matcher is nil and we don't have an error, we don't have a .dockerignore to scan.
+	if matcher == nil {
+		return nil
+	}
+	if matcher.MatchesPath(".cog") {
+		return errors.New("The .cog tmp path cannot be ignored by docker in .dockerignore.")
+	}
+	return nil
 }
